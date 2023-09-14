@@ -1,0 +1,6 @@
+ADD JWT
+CHECK IF U CAN ADD AN ERROR MESSAGE FROM EXPRESS when an exception is thrown
+
+SUMMARY 9/13/23:
+
+finished user registration and login and checked for edge cases. 
