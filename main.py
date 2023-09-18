@@ -1,13 +1,22 @@
-from flask import Flask, render_template, request, redirect, url_for
+# dependencies
+from flask import Flask, render_template, request, make_response, redirect, url_for
 from flask_bcrypt import Bcrypt
 from os import environ
+from dotenv import load_dotenv
 from pymongo import MongoClient
+import jwt
+# set up/boiler plate code
 cluster = MongoClient('mongodb+srv://todoAppUser:Kenneth2005@cluster0.idpy6zz.mongodb.net/?retryWrites=true&w=majority')
 db = cluster["users"]
 collection = db["user_credentials"]
 
 app = Flask(__name__)
 bcrypt = Bcrypt(app)
+
+load_dotenv()
+pepper = environ.get('SECRET_PEPPER')
+private_key = environ.get('SECRET_KEY')
+print("private key", private_key)
 # basic routes
 @app.route("/")
 def register():
@@ -20,18 +29,21 @@ def login():
 @app.route('/chat')
 def chat():
     return render_template('chat.html')
+
 # POST routes
-pepper = environ.get('SECRET_PEPPER')
+
 @app.route('/registerUser', methods=["POST"])
 def registerUser():
     try:
         username = request.form.get('username')
         password = request.form.get('password') + str(pepper)
+        # hash and add salt to the password + pepper
         encrypted_password = bcrypt.generate_password_hash(password, 12)
         # check if username exists
         checkUserExists = collection.find_one({'username': username})
         if checkUserExists is not None:
             raise Exception("Sorry username already Exists...")
+        # insert username + encrypted password as a document
         collection.insert_one({'username': username, 'password': encrypted_password})
     except Exception as e:
         print(e)
@@ -48,13 +60,19 @@ def loginUser():
             raise Exception("No Username Exists")
         correctPassword = findCorrectUser['password']
         if bcrypt.check_password_hash(correctPassword, passwordGuess):
-            print("Password is correct.")
+            # password is correct in this case.
+            encodedJWT = jwt.encode({"user": usernameGuess}, private_key, algorithm="HS256")
+            response = make_response(redirect(url_for('chat')))
+            response.set_cookie('JWT', encodedJWT)
         else:
             raise Exception("Sorry wrong password.")
+    except jwt.ExpiredSignatureError:
+        print("expired signature error")
+        return redirect(url_for('login'))    
     except Exception as e:
-        print(e)
+        print("error: ", e)
         return redirect(url_for('login'))
-    return redirect(url_for('chat'))
+    return response
 
 
 if __name__ == '__main__': 
