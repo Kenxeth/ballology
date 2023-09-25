@@ -6,12 +6,14 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 from functools import wraps
 import jwt
+from flask_socketio import SocketIO, emit
 # set up/boiler plate code
 cluster = MongoClient('mongodb+srv://todoAppUser:Kenneth2005@cluster0.idpy6zz.mongodb.net/?retryWrites=true&w=majority')
 db = cluster["users"]
 collection = db["user_credentials"]
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 bcrypt = Bcrypt(app)
 # load env variables to use
 load_dotenv()
