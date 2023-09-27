@@ -87,6 +87,19 @@ def handle_message(message):
     cursor.execute(sql_insert, new_message)
     conn.commit()
 
+# chat messsage route
+@app.route('/getChatMessages')
+@check_for_token
+def getChatMessages():
+    cursor = conn.cursor()
+    view_all_messages = ("""
+        SELECT * from MESSAGES
+    """)
+    cursor.execute(view_all_messages)
+    result = cursor.fetchall()
+    print(result)
+    conn.commit()
+    return result
 
 # basic routes
 @app.route("/")
@@ -162,6 +175,7 @@ def logoutUser():
     response.set_cookie('JWT', '', expires=0)
     response.set_cookie("username", '', expires=0)
     return response
+
 
 
 if __name__ == '__main__': 
