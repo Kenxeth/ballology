@@ -1,25 +1,39 @@
 # dependencies
 from flask import Flask, render_template, request, make_response, redirect, url_for
 from flask_bcrypt import Bcrypt
-from os import environ
-from dotenv import load_dotenv
+# db dependencies
 from pymongo import MongoClient
-from functools import wraps
+import psycopg2
+# jwt token dependencies
 import jwt
+from functools import wraps
+
 from flask_socketio import SocketIO, emit
+import traceback
+
+# env file dependencies
+from dotenv import load_dotenv
+from os import environ
+load_dotenv()
+
+
 # set up/boiler plate code
-cluster = MongoClient('mongodb+srv://todoAppUser:Kenneth2005@cluster0.idpy6zz.mongodb.net/?retryWrites=true&w=majority')
+cluster = MongoClient(environ.get('MONGO_DB_URL'))
 db = cluster["users"]
 collection = db["user_credentials"]
 
 app = Flask(__name__)
 socketio = SocketIO(app)
 bcrypt = Bcrypt(app)
+
 # load env variables to use
-load_dotenv()
 pepper = environ.get('SECRET_PEPPER')
 private_key = environ.get('SECRET_KEY')
 
+# SQL connection
+conn = psycopg2.connect(environ.get('POSTGRES_URL'))
+
+# authorization
 def check_for_token(func):
     @wraps(func)
     def inner_func(*args, **kwargs):
@@ -39,9 +53,40 @@ def check_for_token(func):
             return redirect(url_for('login'))
         except Exception as e:
             print('err', e)
+            print(traceback.format_exc())
             return redirect(url_for('login'))
         return func(*args, **kwargs)
     return inner_func
+
+
+# chat feature
+@socketio.on('connect')
+def connect():
+    print("client connected")
+
+@socketio.on('message')
+def handle_message(message):
+    print('Received message:', message)
+    cursor = conn.cursor()
+    sql_insert = ("""
+        INSERT INTO messages (username, current_message)
+        VALUES (%s, %s)
+    """)
+
+    # since message sender is always changing, we have to iterate through the message
+    # and make both the message and the messagesender global variables so we can insert 
+    # it inside of our DB
+
+    for key,value in message.items():
+        global username
+        username = key
+        global current_message 
+        current_message = value
+    
+    new_message = (username, current_message)
+    cursor.execute(sql_insert, new_message)
+    conn.commit()
+
 
 # basic routes
 @app.route("/")
@@ -78,6 +123,7 @@ def registerUser():
         collection.insert_one({'username': username, 'password': encrypted_password})
     except Exception as e:
         print(e)
+        print(traceback.format_exc())
         return redirect(url_for('register'))
     return redirect(url_for('register'))
 
@@ -85,6 +131,8 @@ def registerUser():
 def loginUser():
     try:
         usernameGuess = request.form.get('username')
+        print(type(pepper))
+        print(type(request.form.get('password')))
         passwordGuess = request.form.get('password') + str(pepper)
         findCorrectUser = collection.find_one({'username': usernameGuess})
         if findCorrectUser is None:
@@ -94,7 +142,8 @@ def loginUser():
             # password is correct in this case.
             encodedJWT = jwt.encode({"user": usernameGuess}, private_key, algorithm="HS256")
             response = make_response(redirect(url_for('chat')))
-            response.set_cookie('JWT', encodedJWT, max_age=20)
+            response.set_cookie('JWT', encodedJWT, max_age=10000)
+            response.set_cookie('username', usernameGuess)
         else:
             raise Exception("Sorry wrong password.")
     except jwt.ExpiredSignatureError:
@@ -102,6 +151,8 @@ def loginUser():
         return redirect(url_for('login'))    
     except Exception as e:
         print("error: ", e)
+        # prints out line error
+        print(traceback.format_exc())
         return redirect(url_for('login'))
     return response
 
@@ -109,7 +160,9 @@ def loginUser():
 def logoutUser():
     response = make_response(redirect(url_for('login')))
     response.set_cookie('JWT', '', expires=0)
+    response.set_cookie("username", '', expires=0)
     return response
 
+
 if __name__ == '__main__': 
-   app.run()
+   socketio.run(app)
