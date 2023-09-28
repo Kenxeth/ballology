@@ -1,5 +1,5 @@
 # dependencies
-from flask import Flask, render_template, request, make_response, redirect, url_for
+from flask import Flask, render_template, request, make_response, redirect, url_for, flash
 from flask_bcrypt import Bcrypt
 # db dependencies
 from pymongo import MongoClient
@@ -29,6 +29,7 @@ bcrypt = Bcrypt(app)
 # load env variables to use
 pepper = environ.get('SECRET_PEPPER')
 private_key = environ.get('SECRET_KEY')
+app.secret_key = environ.get('APP_SECRET_KEY')
 
 # SQL connection
 conn = psycopg2.connect(environ.get('POSTGRES_URL'))
@@ -131,7 +132,8 @@ def registerUser():
         # check if username exists
         checkUserExists = collection.find_one({'username': username})
         if checkUserExists is not None:
-            raise Exception("Sorry username already Exists...")
+            flash("Sorry that username is already Taken. Please choose another one.")
+            return redirect(url_for('register'))
         # insert username + encrypted password as a document
         collection.insert_one({'username': username, 'password': encrypted_password})
     except Exception as e:
@@ -149,7 +151,8 @@ def loginUser():
         passwordGuess = request.form.get('password') + str(pepper)
         findCorrectUser = collection.find_one({'username': usernameGuess})
         if findCorrectUser is None:
-            raise Exception("No Username Exists")
+            flash("Username not found.")
+            return redirect(url_for('login'))
         correctPassword = findCorrectUser['password']
         if bcrypt.check_password_hash(correctPassword, passwordGuess):
             # password is correct in this case.
@@ -158,7 +161,8 @@ def loginUser():
             response.set_cookie('JWT', encodedJWT, max_age=10000)
             response.set_cookie('username', usernameGuess)
         else:
-            raise Exception("Sorry wrong password.")
+            flash("Wrong password.")
+            return redirect(url_for('login'))
     except jwt.ExpiredSignatureError:
         print("expired signature error")
         return redirect(url_for('login'))    

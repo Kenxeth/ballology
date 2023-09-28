@@ -21,9 +21,19 @@
         <button>Enter</button>
     </form>
 
-    <form action="/registerUser" method="post">
+    {% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <p class="flash-message">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+    <form action="/" method="get">
         <h1>MAKE AN ACCOUNT INSTEAD?</h1>
-        <button>YES</button>
+        <button type="submit">YES</button>
     </form>
 </body>
 </html>

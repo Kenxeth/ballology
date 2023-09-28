@@ -1,22 +1,13 @@
-const socket = io()
-// receives handshake and initiates a websocket connection with server
-socket.on("connect", ()=>{
-    console.log("CLIENT CONNECTED");
-})
+const inputText = document.getElementById('inputText');
+const submitButton = document.getElementById('submitButton');
+const output = document.getElementById('output');
 
-// js has no support for getting a cookie so you have to make your own function
 function getCookie(name) {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
     if (parts.length === 2) return parts.pop().split(';').shift();
 }
 
-const inputText = document.getElementById('inputText');
-const submitButton = document.getElementById('submitButton');
-const output = document.getElementById('output');
-
-// this function serves a purpose of loading the messages as soon as the client 
-// opens up the browser
 async function show_messages(){
     const response = await fetch("http://127.0.0.1:5000/getChatMessages");
     const chatMessages = await response.json();
@@ -28,6 +19,12 @@ async function show_messages(){
         output.insertBefore(newParagraph, output.firstChild);
     }
 }
+
+const socket = io()
+// receives handshake and initiates a websocket connection with server
+socket.on("connect", ()=>{
+    console.log("CLIENT CONNECTED");
+})
 
 show_messages()
 
@@ -49,3 +46,9 @@ submitButton.addEventListener('click', function() {
 
     inputText.value = '';
 });
+
+// USER LOGIN ERROR RESPONSES
+
+fetch('http://127.0.0.1:5000/registerUser')         
+  .then(response => response.json())
+  .then(data => console.log(data));
