@@ -1,6 +1,8 @@
 # dependencies
-from flask import Flask, render_template, request, make_response, redirect, url_for, flash
+from flask import Flask, render_template, request, make_response, jsonify, redirect, url_for, flash
+import flask
 from flask_bcrypt import Bcrypt
+import requests
 # db dependencies
 from pymongo import MongoClient
 import psycopg2
@@ -23,7 +25,6 @@ db = cluster["users"]
 collection = db["user_credentials"]
 
 app = Flask(__name__)
-socketio = SocketIO(app)
 bcrypt = Bcrypt(app)
 
 # load env variables to use
@@ -34,7 +35,11 @@ app.secret_key = environ.get('APP_SECRET_KEY')
 # SQL connection
 conn = psycopg2.connect(environ.get('POSTGRES_URL'))
 
-# authorization
+class Person:
+  def __init__(self, username, password):
+    self.username = username
+    self.password = password
+
 def check_for_token(func):
     @wraps(func)
     def inner_func(*args, **kwargs):
@@ -48,139 +53,122 @@ def check_for_token(func):
                 raise jwt.exceptions.DecodeError
         except jwt.exceptions.DecodeError:
             print("Sorry, not validated.")
-            return redirect(url_for('login'))
+            return redirect('http://127.0.0.1:5000/login')
         except jwt.exceptions.InvalidTokenError:
             print("Sorry token invalid.")
-            return redirect(url_for('login'))
+            return redirect('http://127.0.0.1:5000/login')
         except Exception as e:
             print('err', e)
             print(traceback.format_exc())
-            return redirect(url_for('login'))
+            return redirect('http://127.0.0.1:5000/login')
         return func(*args, **kwargs)
     return inner_func
 
 
-# chat feature
-@socketio.on('connect')
-def connect():
-    print("client connected")
-
-@socketio.on('message')
-def handle_message(message):
-    print('Received message:', message)
-    cursor = conn.cursor()
-    sql_insert = ("""
-        INSERT INTO messages (username, current_message)
-        VALUES (%s, %s)
-    """)
-
-    # since message sender is always changing, we have to iterate through the message
-    # and make both the message and the messagesender global variables so we can insert 
-    # it inside of our DB
-
-    for key,value in message.items():
-        global username
-        username = key
-        global current_message 
-        current_message = value
-    
-    new_message = (username, current_message)
-    cursor.execute(sql_insert, new_message)
-    conn.commit()
-
-# chat messsage route
-@app.route('/getChatMessages')
-@check_for_token
-def getChatMessages():
-    cursor = conn.cursor()
-    view_all_messages = ("""
-        SELECT * from MESSAGES
-    """)
-    cursor.execute(view_all_messages)
-    result = cursor.fetchall()
-    print(result)
-    conn.commit()
-    return result
-
-# basic routes
-@app.route("/")
+@app.route('/register', methods=["GET", "POST"])
 def register():
-    return render_template('register.html')
-
-@app.route('/login')
-def login():
-    return render_template('login.html')
-
-@app.route('/logout')
-def logout():
-    return render_template('logout.html')
-
-@app.route('/chat')
-@check_for_token
-def chat():
-    return render_template('chat.html')
-# POST routes
-
-@app.route('/registerUser', methods=["POST"])
-def registerUser():
-    try:
-        username = request.form.get('username')
-        password = request.form.get('password') + str(pepper)
-        # hash and add salt to the password + pepper
-        # bcrypt returns a binary #
-        encrypted_password = bcrypt.generate_password_hash(password, 12)
-        # check if username exists
-        checkUserExists = collection.find_one({'username': username})
-        if checkUserExists is not None:
-            flash("Sorry that username is already Taken. Please choose another one.")
-            return redirect(url_for('register'))
-        # insert username + encrypted password as a document
-        collection.insert_one({'username': username, 'password': encrypted_password})
-    except Exception as e:
+   try:
+      if flask.request.method == "GET":
+        if request.cookies.get('username') is not None:
+            username = request.cookies.get('username')
+            return redirect(f"http://127.0.0.1:5000/user/{username}")
+      username = request.form.get('username')
+      password = request.form.get('password')
+      newPerson = Person(username, password)
+      responseFromRegister = requests.post("http://127.0.0.1:5505/registerUser", json={'user': newPerson.__dict__}, headers = {'Content-Type': 'application/json'})
+      # grab result from the request we sent to the microservice
+      message = responseFromRegister.json() 
+      flash(message["message"])
+   except Exception as e:
         print(e)
         print(traceback.format_exc())
-        return redirect(url_for('register'))
-    return redirect(url_for('register'))
-
-@app.route('/loginUser', methods=['POST'])
-def loginUser():
-    try:
-        usernameGuess = request.form.get('username')
-        print(type(pepper))
-        print(type(request.form.get('password')))
-        passwordGuess = request.form.get('password') + str(pepper)
-        findCorrectUser = collection.find_one({'username': usernameGuess})
-        if findCorrectUser is None:
-            flash("Username not found.")
-            return redirect(url_for('login'))
-        correctPassword = findCorrectUser['password']
-        if bcrypt.check_password_hash(correctPassword, passwordGuess):
-            # password is correct in this case.
-            encodedJWT = jwt.encode({"user": usernameGuess}, private_key, algorithm="HS256")
-            response = make_response(redirect(url_for('chat')))
-            response.set_cookie('JWT', encodedJWT, max_age=10000)
-            response.set_cookie('username', usernameGuess)
-        else:
-            flash("Wrong password.")
-            return redirect(url_for('login'))
-    except jwt.ExpiredSignatureError:
-        print("expired signature error")
-        return redirect(url_for('login'))    
-    except Exception as e:
-        print("error: ", e)
-        # prints out line error
+        return jsonify({"message": "Sorry something went wrong. Please try again."})
+   
+   return redirect(url_for('register'))
+   
+   
+@app.route('/login', methods=["GET", "POST"])
+def login():
+   try:
+      if flask.request.method == "GET":
+        if request.cookies.get('username') is not None:
+            username = request.cookies.get('username')
+            url = f"http://127.0.0.1:5000/user/{username}"
+            return redirect(url)
+        return render_template('login.html')
+   # if its a POST request...
+      username = request.form.get('username')
+      password = request.form.get('password')
+      newPerson = Person(username, password)
+      responseFromLogin = requests.post('http://127.0.0.1:5502/loginUser', json={"user": newPerson.__dict__}, headers={'Content-Type': 'application/json'})
+      # grab result from the request we sent to the microservice
+      responseDictFromLogin = responseFromLogin.json() 
+      # checks to see what is in the dictionary: message or JWT token
+      # JWT Token auth is checked by nginx
+      if "message" in responseDictFromLogin:
+          flash(responseDictFromLogin["message"])
+      elif "JWT" in responseDictFromLogin:
+         resp = make_response(redirect('login'))
+         resp.set_cookie('username', responseDictFromLogin["username"], max_age= 10000)
+         resp.set_cookie('JWT', responseDictFromLogin["JWT"], max_age=10000)
+         return resp
+   except Exception as e:
+        print(e)
         print(traceback.format_exc())
-        return redirect(url_for('login'))
-    return response
+        return jsonify({"message": "Sorry something went wrong. Please try again."})
+   return redirect(url_for('login'))
 
-@app.route('/logout', methods=['POST'])
-def logoutUser():
-    response = make_response(redirect(url_for('login')))
-    response.set_cookie('JWT', '', expires=0)
-    response.set_cookie("username", '', expires=0)
-    return response
+@app.route('/')
+@app.route('/user/<user>', methods= ["GET", "POST"])
+@check_for_token
+def profile(user):
+    # if the user is trying to grab a profile (either theirs or not theirs)
+    if flask.request.method == "GET":
+        findCorrectUser = collection.find_one({'username': user})
+        if findCorrectUser is None: 
+            return render_template('404.html'), 404
+        
+        # sending jwt token and user so we can figure out the users metadata from the DB (profile.py deals with that)
+        result = requests.post('http://127.0.0.1:5504/userMetadata', json={"user": {"username": request.cookies.get("username"), "JWT": request.cookies.get("JWT")}}, headers={'Content-Type': 'application/json'})
+        
+        userMetadata = result.json()
+            # passing user metadata into jinja template for displaying purposes
+        currentUser = userMetadata["currentUser"]
+        desc = userMetadata["desc"]
+        friend_count = userMetadata["friend_count"]
+        pfp = userMetadata["pfp"] 
+        return render_template('profile.html', currentUser=currentUser, user=user, desc=desc, pfp=pfp, friend_count=friend_count)
+    # if a user is trying to send a friend request to another user...
+    elif flask.request.method == "POST":
+        print("sent friend request...")
+        requests.post("http://127.0.0.1:5501/sendFriendRequest",json={"JWT": request.cookies.get('JWT'), "requested_user": user}, headers={"Content-Type": "application/json"})
+        
+        
+        
+        
+        
+        return redirect(f"http://127.0.0.1:5000/user/{user}")
+        
+   
+@app.route('/changeUserData', methods=["POST"])
+@check_for_token
+def changeUserData():
+   # get data from client 
+   data = request.get_json()
+   # send data + JWT to microservice so it can change user metadata
+   requests.post('http://127.0.0.1:5504/changeUserProfileAttribute', json={"data": data, "jwtToken": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
+   username = request.cookies.get("username")
+   return redirect(f"http://127.0.0.1:5000/user/{username}")
+
+@app.route('/friends', methods=["GET"])
+@check_for_token
+def friends():
+        result = requests.post('http://127.0.0.1:5501/friends', json={"jwt_token": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
+        getUserJson = result.json()
+        return render_template('friends.html', friend_count=getUserJson["friend_count"], user=getUserJson["username"])
+   
 
 
 
 if __name__ == '__main__': 
-   socketio.run(app)
+   app.run(debug=False)

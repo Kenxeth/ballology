@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="{{url_for('static', filename='profile.css')}}">
+    <script src="{{url_for('static', filename='changeProfileSettings.js')}}" defer></script>
+</head>
+<body>
+    
+    <h1> {{ user }} </h1>
+    
+    <div id="userProfileImageContainer">
+        <p>
+            What about your pfp? Here it is!
+            <img src="{{pfp}}" alt="No Image" id="userProfileImage"></img>
+        </p>
+        <input type="hidden" id="changeUserProfileImage">
+        <button id="submitUserProfileImageChanges">Change</button>
+    </div>
+
+    <div id="userProfileDescriptionContainer">
+        <p id="userProfileDescription">{{ desc }}</p> <!-- Desc goes here-->  
+        <input type="hidden" id="changeUserProfileDesc">  
+        <button id="submitUserProfileDescChanges">Change</button>
+    </div>
+    
+    <div id="userProfileFriendCountContainer">
+        <p id="userProfileFriendCount">
+            Friends: {{ friend_count }}<!-- Friend count goes here-->
+        </p>
+    </div>
+
+    {% if currentUser == user %}
+    <div id="userProfileButtonContainer">
+            <button id="changeUserProfileButton"> Change settings </button>
+    </div>
+    {% else %}
+    <div id="makeFriendRequestContainer">
+        <form action="" method="post">
+            <button id="addFriendRequestButton"> Add Friend </button>
+        </form>
+    </div>
+    {% endif %}
+</body>
+</html>

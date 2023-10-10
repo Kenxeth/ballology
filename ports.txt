@@ -1,0 +1,10 @@
+list of ports:
+
+CHAT: 5500
+FRIENDS: 5501
+LOGIN: 5502
+LOGOUT: 5503
+REGISTER: 5504
+
+
+find out how to upload a file and save it to the database and show it on the screen from db

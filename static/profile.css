@@ -1,0 +1,10 @@
+/* profile.html CODE */
+
+/* input value for settings should originally be nothing unless user clicks change settings */
+#submitUserProfileDescChanges{
+    display: none;
+}
+
+#submitUserProfileImageChanges{
+    display: none;
+}
