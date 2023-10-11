@@ -64,6 +64,14 @@ def getCurrentUser(jwtToken):
     username = payload["user"]
     return username
 
+# gets the current user for the friend request button
+@app.route('/getCurrentUserForFriendRequest', methods=["POST"])
+def getCurrentUserForFriendRequest():
+    requestedInfo = request.get_json()
+    get_jwtToken = requestedInfo["jwt"]
+    userJWT = getCurrentUser(get_jwtToken)
+    return jsonify({"current_user": userJWT})
+
 
 @app.route('/userMetadata', methods=["POST"])
 def profile():
@@ -73,7 +81,6 @@ def profile():
 
     username = user["username"]
     jwtToken = user["JWT"]
-    
     # returns the current users username in order to change the layout of the users page- if its their account they can change their settings, if its not their account, they can try adding them as a friend   
     # check profile.html jinja templates for more information
     currentUser = getCurrentUser(jwtToken)
@@ -120,50 +127,6 @@ def userData():
     userAttributes = get_user_attributes_from_db(username)
     friend_count = userAttributes[2]
     return jsonify({"username": username, "friend_count": friend_count})
-
-# sends the users 
-@app.route('/sendUserFriendRequest', methods=["POST"])
-def sendUserFriendRequest():
-
-    getResult = request.get_json()
-    get_JWT = getResult["JWT"]
-    User_Requester = getCurrentUser(get_JWT)
-    requested_user = getResult["requested_user"]
-    try:
-        # put the user_requester and requested user in a stack so that 
-        # when 
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
-        channel = connection.channel()
-        channel.queue_declare(queue="friend_request")
-        channel.basic_publish(exchange='',
-                        routing_key='friend_request',
-                        body=json.dumps({"user_requester": User_Requester, "requested_user": requested_user}))
-        connection.close()
-    except Exception as e:
-        return jsonify({"message": "failed"})
-    return jsonify({"message": "success"})
-
-
-def send_friend_request(sender, recipient, message):
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-    channel = connection.channel()
-
-    # Declare a direct exchange
-    channel.exchange_declare(exchange='friend_requests', exchange_type='direct')
-
-    # Declare a queue for the recipient user
-    channel.queue_declare(queue=recipient)
-    
-    # Bind the queue to the exchange with the recipient user as the routing key
-    channel.queue_bind(exchange='friend_requests', queue=recipient, routing_key=recipient)
-
-    # Send the friend request message to the exchange with the recipient user as the routing key
-    channel.basic_publish(exchange='friend_requests', routing_key=recipient, body=message)
-
-    connection.close()
-
-
-
 
 if __name__ == '__main__': 
    app.run(port=5504)

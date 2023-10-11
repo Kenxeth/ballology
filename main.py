@@ -13,6 +13,8 @@ from functools import wraps
 from flask_socketio import SocketIO, emit
 import traceback
 
+import pika
+
 # env file dependencies
 from dotenv import load_dotenv
 from os import environ
@@ -72,6 +74,7 @@ def register():
         if request.cookies.get('username') is not None:
             username = request.cookies.get('username')
             return redirect(f"http://127.0.0.1:5000/user/{username}")
+        return render_template('register.html')
       username = request.form.get('username')
       password = request.form.get('password')
       newPerson = Person(username, password)
@@ -138,15 +141,31 @@ def profile(user):
         friend_count = userMetadata["friend_count"]
         pfp = userMetadata["pfp"] 
         return render_template('profile.html', currentUser=currentUser, user=user, desc=desc, pfp=pfp, friend_count=friend_count)
-    # if a user is trying to send a friend request to another user...
+    # if a user is trying to send a friend request to another user  (clicks on the friend request button)...
     elif flask.request.method == "POST":
         print("sent friend request...")
-        requests.post("http://127.0.0.1:5501/sendFriendRequest",json={"JWT": request.cookies.get('JWT'), "requested_user": user}, headers={"Content-Type": "application/json"})
+        # in async comm. the server has to send the message to the queue instead
+        # and the microservice retrieves this message and does something with it
         
-        
-        
-        
-        
+        # get requester
+        getRequesterResult = requests.post('http://127.0.0.1:5504/getCurrentUserForFriendRequest', json={"jwt": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
+        userResult = getRequesterResult.json()
+        print(userResult)
+        requester = userResult["current_user"]
+
+        # SEND A FRIEND REQUEST VIA RABBITMQ (SENDING A MESSAGE TO THE QUEUE VIA DIRECT EXCHANGE)
+
+        # REQUESTED USER IS user in this case (just grabbing the user from url)
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
+        channel = connection.channel()
+        # declare a exchange 
+        channel.exchange_declare(exchange="direct_log", exchange_type="direct")
+        # BINDING the queue with routing_key (user that got requested), so that if the user 
+        # that got requested gets a friend request/message... the server can take care of doing everything else
+        channel.queue_bind(exchange='direct_log', queue=user, routing_key=f'{user}')
+        message = f"Hello, {user}. {requester} wants to be your friend."
+        channel.basic_publish(exchange='direct_log', routing_key= f'{user}', body=message)
+        connection.close()
         return redirect(f"http://127.0.0.1:5000/user/{user}")
         
    

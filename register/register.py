@@ -6,6 +6,7 @@ from pymongo import MongoClient
 import psycopg2
 import traceback
 
+import pika
 # env file dependencies
 from dotenv import load_dotenv
 from os import environ
@@ -53,8 +54,15 @@ def registerUser():
         checkUserExists = collection.find_one({'username': username})
         if checkUserExists is not None:
             return jsonify({"message": "Sorry that username is already Taken. Please choose another one."})
+        # make a new user
         collection.insert_one({'username': username, 'password': encrypted_password})
         insert_user_attributes_into_db(username)
+        # if a user is made then a new queue should be made as well to send friend requests...
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
+        channel = connection.channel()
+        channel.queue_declare(username)
+        connection.close()
+
     except Exception as e:
         print(e)
         print(traceback.format_exc())

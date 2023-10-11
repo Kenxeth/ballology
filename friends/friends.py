@@ -10,7 +10,7 @@ import jwt
 from flask_socketio import SocketIO, emit
 
 import pika
-
+import json
 # env file dependencies
 from dotenv import load_dotenv
 from os import environ
@@ -35,12 +35,21 @@ def friends():
    userJWT = getJson["jwt_token"]
    response = requests.post('http://127.0.0.1:5504/userFriendsData', json={"jwt_token": userJWT}, headers={"Content-Type": "application/json"})
    
-   
+
    if response.status_code == 204:
       print("No content returned.")
    elif response.status_code == 200:
     try:
+        # data has been passed from profile microservice to display user metadata
         data = response.json()
+        
+        getCurrentFriendRequests = handleFriendRequest(userJWT)
+        currentFriendRequest = getCurrentFriendRequests["friend_request_status"]
+        print("what we've all been waiting for: ", currentFriendRequest)
+        # 2) /HANDLEFR SHOULD GIVE THIS INFORMATION TO /FRIENDS
+        # 3) /FRIENDS SHOULD BE ABLE TO DISPLAY THIS MESSAGE HOPEFULLY ON THE USER BROWSER
+        # WITH JINJA TEMPLATE
+
     except requests.exceptions.JSONDecodeError:
       print("Invalid JSON in the response.")
    else:
@@ -48,20 +57,7 @@ def friends():
   
    return jsonify({"friend_count": data["friend_count"], "username": data["username"]})
 
-
-@app.route('/sendFriendRequest', methods=["POST"])
-def sendFriendRequest():
-    # get requested user and get the current user logged in (or the requester) to make a friend request
-    getResultFromMain = request.get_json()
-    requested_user = getResultFromMain["requested_user"]
-    userJWT = getResultFromMain["JWT"]
-    requester = getCurrentUser(userJWT)
-
-    makeFriendRequest(requester, requested_user)
-    # make error handling here
-    return "lala"
- 
-
+# gets the current user according to JWT token
 def getCurrentUser(jwtToken):
     """ returns the current user's username from the payload of the JWT token thats passed from the userMetadata route"""
     payload = jwt.decode(jwtToken, private_key, algorithms="HS256")
@@ -69,22 +65,28 @@ def getCurrentUser(jwtToken):
     username = payload["user"]
     return username
 
+# listens for user friend requests according to the current user logged in.
+def handleFriendRequest(jwtToken):
+    
+    current_user = getCurrentUser(jwtToken)
+    
+    # if a message appears in the queue, this callback will be called.
+    def callback(ch,method,properties,body):
+       connection.close()
+       print(type(body))
+       return {"friend_request_status": body}
+    
 
-
-def makeFriendRequest(requester, requested_user):
+    # listen to messages in the current_user queue- aka server is going to be listening to the current user logged in friend req.
     connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
     channel = connection.channel()
-    channel.exchange_declare(exchange="direct_log", exchange_type="direct")
-    channel.queue_declare("friend_request")
-    # bind the queue with a routing_key so that messages go to that routing key; direct exchange
-    channel.queue_bind(exchange='direct_log', queue='friend_request', routing_key=f'{requested_user}')
-    message = f"Hello, {requested_user}. {requester} wants to be your friend."
-    channel.basic_publish(exchange='direct_log', routing_key= f'{requested_user}', body=message)
-    channel.basic_consume(queue='friend_request', on_message_callback=callback, auto_ack=True)
-    connection.close()
-
-
-
+    for method_frame, properties, body in channel.consume(queue=current_user, auto_ack=True, inactivity_timeout= 1):
+        if method_frame:
+            # originally body is in bytes
+            decoded_body = body.decode('utf-8')
+            return callback(None, method_frame, properties, decoded_body)
+        else:
+           return {"friend_request_status": "No Friend Request Sent"}
 
 
 
