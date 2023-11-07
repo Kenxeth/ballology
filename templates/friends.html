@@ -4,8 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
+    <script src="{{url_for('static', filename='friends.js')}}"></script>
 </head>
 <body>
-    Hi {{ user }}, you currently have {{ friend_count }} friends.
+    
+    <h1>Hi {{ user }}, you currently have {{ friend_count }} friends.</h1>
+    <br><br><br>
+
+    <div id="currentFriendRequestContainer">
+        <h3>{{currentFriendRequest}}</h3>
+    </div>
+    
+    <div id="friendsContainer">
+        <h1>Current Friends:</h1>
+        {% for i in listOfCurrentUsersFriends %}
+            <p>{{i}}</p>
+            
+            <form action="http://127.0.0.1:5000/generateLink", method="POST">
+                <input type="hidden" name="friendToChat" value="{{i}}">
+                <button>Message</button>    
+            </form>
+            <br>
+        {% endfor %}
+    </div>
+
+
+    {% if currentFriendRequest == "No Friend Request Sent."%}
+    {% else %}
+    <form action="http://127.0.0.1:5000/acceptFriendRequest" method="post">
+        <input type="hidden" name="currentFriendRequest" value="{{currentFriendRequest}}">
+        <button type="submit" value="Submit">Yes</button>
+    </form>
+    <form action="http://127.0.0.1:5000/declineFriendRequest" method="post">
+        <button type="submit" value="Submit">No</button>
+    </form>
+    {% endif %}
 </body>
 </html>

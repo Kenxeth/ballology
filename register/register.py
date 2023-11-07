@@ -27,20 +27,50 @@ app.secret_key = environ.get('APP_SECRET_KEY')
 pepper = environ.get('SECRET_PEPPER')
 
 
+class RegisterUser:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
+        self.json_resp = None
+        self.username_avaliability = None
+        
+    def check_username_avaliabilty(self):
+        checkUserExists = collection.find_one({'username': self.username})
+        
+        if checkUserExists is not None:
+            self.json_resp = jsonify({"message": "Sorry that username is already Taken. Please choose another one."})
+            self.username_avaliability = False
+        
+        self.username_avaliability = True
 
-def insert_user_attributes_into_db(username):
-    cursor = conn.cursor()
-    sql_insert = ("""
-        INSERT INTO user_attributes (description, pfp, friend_count, username)
-        VALUES (%s, %s, %s, %s)
-        """)
-    description = "Hi, I am a new user!"
-    pfp = None
-    friend_count = 0
+    def insert_information_to_DBs(self):
+        """
+            Inserting credentials + user attributes into DB's. User attributes is needed for the profile page when the user is looked up.
+        """
+        
+        if self.username_avaliability:
+            # inserting credentials into mongoDB database
+            collection.insert_one({'username': self.username, 'password': self.password})
 
-    attributes = (description, pfp, friend_count, username)
-    cursor.execute(sql_insert, attributes)
-    conn.commit()
+            # inserting user attributes into SQL datbaase.
+            cursor = conn.cursor()
+            sql_insert = ("""
+                INSERT INTO user_attributes (description, pfp, friend_count, username)
+                VALUES (%s, %s, %s, %s)
+                """)
+            description = "Hi, I am a new user!"
+            pfp = None
+            friend_count = 0
+
+            attributes = (description, pfp, friend_count, self.username)
+            cursor.execute(sql_insert, attributes)
+            conn.commit()
+
+    def make_new_queue(self):
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
+        channel = connection.channel()
+        channel.queue_declare(self.username)
+        connection.close()
 
 
 @app.route('/registerUser', methods=["POST"]) 
@@ -50,18 +80,17 @@ def registerUser():
         user = response["user"]
         username = user["username"]
         password = user["password"] + str(pepper)
+
         encrypted_password = bcrypt.generate_password_hash(password, 12)
-        checkUserExists = collection.find_one({'username': username})
-        if checkUserExists is not None:
-            return jsonify({"message": "Sorry that username is already Taken. Please choose another one."})
-        # make a new user
-        collection.insert_one({'username': username, 'password': encrypted_password})
-        insert_user_attributes_into_db(username)
-        # if a user is made then a new queue should be made as well to send friend requests...
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
-        channel = connection.channel()
-        channel.queue_declare(username)
-        connection.close()
+        
+        new_client = RegisterUser(username, encrypted_password)
+        new_client.check_username_avaliabilty()
+
+        if new_client.username_avaliability == False:
+            return new_client.json_resp
+        
+        new_client.insert_information_to_DBs()
+        new_client.make_new_queue()
 
     except Exception as e:
         print(e)
@@ -70,8 +99,6 @@ def registerUser():
     
     return jsonify({"message": "Success"})
     
-
-
 
 if __name__ == '__main__': 
    app.run(port=5505)

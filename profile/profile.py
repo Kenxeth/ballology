@@ -19,52 +19,86 @@ cluster = MongoClient(environ.get('MONGO_DB_URL'))
 db = cluster["users"]
 collection = db["user_credentials"]
 
-# makes sure user is authenticated
-
-def get_user_attributes_from_db(username):
-    # get description, pfp and friend_count from the SQL Table
-    cursor = conn.cursor()
-    getDescQuery = sql.SQL("""
-        SELECT description
-        FROM user_attributes
-        WHERE username = %(username)s
-    """)
+class User:
+    def __init__(self, jwt):
+        self.jwtToken = jwt
+        self.username = self.get_current_user()
     
-    cursor.execute(getDescQuery, {"username": username})
-    descTuple = cursor.fetchone()
+    def get_current_user(self):
+        """ returns the current user's username from the payload of the JWT token thats passed from the userMetadata route"""
+        
+        payload = jwt.decode(self.jwtToken, private_key, algorithms="HS256")
+        # make something that says no jwt found if payload is empty
+        username = payload["user"]
+        return username
     
-    getPfpQuery = sql.SQL("""
-        SELECT pfp
-        FROM user_attributes
-        WHERE username = %(username)s
-    """)
-    cursor.execute(getPfpQuery, {"username": username})
-    pfpTuple = cursor.fetchone()
+    def get_user_attributes_from_db(self):
+        """
+            Getting attributes from SQL db so that we can display it on to the screen of the client.
 
-    getFriend_CountQuery = sql.SQL("""
-        SELECT friend_count
-        FROM user_attributes
-        WHERE username = %(username)s
-    """)
+            search_attribute_list (list): list of attributes (columns) to search for in the db- we need the description, pfp and friend_count from every user
+            attribute_list (list) : list of user attributes that came back from the db
+        """
+        search_attribute_list = ["description", "pfp", "friend_count"]
+        attribute_list = []
+        for attribute in search_attribute_list:
+            cursor = conn.cursor()
+            query = sql.SQL(f"""
+                SELECT {attribute}
+                FROM user_attributes
+                WHERE username = %(username)s
+            """)
+        
+            cursor.execute(query, {"username": self.username})
+            tuple = cursor.fetchone()
+            attribute, = tuple
+            attribute_list.append(attribute,)
+        
+        return attribute_list
 
-    cursor.execute(getFriend_CountQuery, {"username": username})
-    getFriend_CountTuple = cursor.fetchone()
-# when we do cursor.fetchone(), result is stored as a tuple. so we need to unpack the tuple
-    desc, = descTuple
-    pfp, = pfpTuple
-    getFriend_Count, = getFriend_CountTuple
+    def change_user_attribute(self, new_description):
+        cursor = conn.cursor()
+        set_new_desc_query = sql.SQL("""
+            UPDATE user_attributes
+            SET description = %(description)s
+            WHERE username = %(username)s
+        """)
+        # change user attributes to the new user attributes
+        cursor.execute(set_new_desc_query, {"description": new_description, "username": self.username})
+        conn.commit()
+        return new_description
 
-    return [desc, pfp, getFriend_Count]
+    def check_relationship(self, other_user):
+        """
+        Check whether the current user and a random other user are friends.
+
+        other_user(string) = the other user
+        """
+        is_user_friend = True
+        
+        # making sure that the user being looked up is not the user logged in 
+        if self.username != other_user:
+            cursor = conn.cursor()
+            check_friend_relationship = sql.SQL("""
+                SELECT 1
+                FROM friendships
+                WHERE (username = %(username)s AND friend = %(friend)s) OR (username= %(friend)s AND friend = %(username)s);
+            """)
+            # user can be BOTH a user AND friend 
+            
+            cursor.execute(check_friend_relationship, {"username": self.username, "friend": other_user})
+            checking_CurrentUser_And_User_LookedUp_RelationshipTuple = cursor.fetchone()
+            
+            if checking_CurrentUser_And_User_LookedUp_RelationshipTuple is None:
+                # if user_friend false, then the user looked up is NOT a friend. meaning that the current user logged in can send a friend request.
+                is_user_friend = False
+            else:
+                # user logged in IS a friend; can't send a friend req to someone who's already considered a friend.
+                is_user_friend = True
+        
+        return is_user_friend
 
 
-def getCurrentUser(jwtToken):
-    """ returns the current user's username from the payload of the JWT token thats passed from the userMetadata route"""
-    payload = jwt.decode(jwtToken, private_key, algorithms="HS256")
-    # make something that says no jwt found if payload is empty
-    username = payload["user"]
-    return username
-
-# gets the current user for the friend request button
 @app.route('/getCurrentUserForFriendRequest', methods=["POST"])
 def getCurrentUserForFriendRequest():
     requestedInfo = request.get_json()
@@ -72,48 +106,34 @@ def getCurrentUserForFriendRequest():
     userJWT = getCurrentUser(get_jwtToken)
     return jsonify({"current_user": userJWT})
 
-
+# put user metadata on to the profile.html
 @app.route('/userMetadata', methods=["POST"])
 def profile():
-    getRequest = request.get_json()
+    get_request = request.get_json()
     
-    user = getRequest["user"]
+    jwt_token = get_request["JWT"]
+    user_being_looked_up = get_request["userBeingLookedUp"]
 
-    username = user["username"]
-    jwtToken = user["JWT"]
-    # returns the current users username in order to change the layout of the users page- if its their account they can change their settings, if its not their account, they can try adding them as a friend   
-    # check profile.html jinja templates for more information
-    currentUser = getCurrentUser(jwtToken)
-
-    # returns an array with desc, pfp and friend_count that is queried from a database
-    user_attributes = get_user_attributes_from_db(username)
-    desc = user_attributes[0]
-    pfp = user_attributes[1]
-    friend_count = user_attributes[2]
-
-    return jsonify({"desc": desc, "pfp": pfp, "friend_count": friend_count, "currentUser": currentUser})
-
+    current_client = User(jwt_token)
+    current_clients_username = current_client.username
+    attribute_list = current_client.get_user_attributes_from_db()    
+    is_other_user_friend = current_client.check_relationship(user_being_looked_up)
+    
+    return jsonify({"desc": attribute_list[0], "pfp": attribute_list[1], "friend_count": attribute_list[2], "currentUser": current_clients_username, "is_other_user_friend": is_other_user_friend})
+    
 # changes user attributes (desc, profile picture, etc..)
 @app.route("/changeUserProfileAttribute", methods=["POST"])
 def changeUserProfileAttribute():
     """ change user data according to what client says """
-    # get user changed description
+   
     getResult = request.get_json()
     newUserDescription = getResult["data"]
-    jwtToken = getResult["jwtToken"]
+    jwt_token = getResult["jwtToken"]
 
-    username = getCurrentUser(jwtToken)
+    current_client = User(jwt_token)
+    current_client.change_user_attribute(newUserDescription)
 
-    cursor = conn.cursor()
-    setNewDescQuery = sql.SQL("""
-        UPDATE user_attributes
-        SET description = %(description)s
-        WHERE username = %(username)s
-    """)
-    # change user attributes to the new user attributes
-    cursor.execute(setNewDescQuery, {"description": newUserDescription, "username": username})
-    conn.commit()
-    return newUserDescription
+    return "Just a filler message, nothing to worry about"
 
 
 # currently requested by the friends microservice.
@@ -122,9 +142,11 @@ def userData():
     # grab JWT token from friends microservice and return a username and friend_count so that the server can show the client how many friends they have
     getJson = request.get_json()
 
-    getUserJWT = getJson["jwt_token"]
-    username = getCurrentUser(getUserJWT)
-    userAttributes = get_user_attributes_from_db(username)
+    jwt_token = getJson["jwt_token"]
+
+    current_client = User(jwt_token)
+    username = current_client.username
+    userAttributes = current_client.get_user_attributes_from_db()
     friend_count = userAttributes[2]
     return jsonify({"username": username, "friend_count": friend_count})
 

@@ -42,6 +42,7 @@ class Person:
     self.username = username
     self.password = password
 
+# flask middleware to authenticate users
 def check_for_token(func):
     @wraps(func)
     def inner_func(*args, **kwargs):
@@ -132,7 +133,7 @@ def profile(user):
             return render_template('404.html'), 404
         
         # sending jwt token and user so we can figure out the users metadata from the DB (profile.py deals with that)
-        result = requests.post('http://127.0.0.1:5504/userMetadata', json={"user": {"username": request.cookies.get("username"), "JWT": request.cookies.get("JWT")}}, headers={'Content-Type': 'application/json'})
+        result = requests.post('http://127.0.0.1:5504/userMetadata', json={"JWT": request.cookies.get("JWT"), "userBeingLookedUp": user}, headers={'Content-Type': 'application/json'})
         
         userMetadata = result.json()
             # passing user metadata into jinja template for displaying purposes
@@ -140,40 +141,18 @@ def profile(user):
         desc = userMetadata["desc"]
         friend_count = userMetadata["friend_count"]
         pfp = userMetadata["pfp"] 
-        return render_template('profile.html', currentUser=currentUser, user=user, desc=desc, pfp=pfp, friend_count=friend_count)
+        is_other_user_friend = userMetadata["is_other_user_friend"]
+
+        return render_template('profile.html', currentUser=currentUser, user=user, desc=desc, pfp=pfp, friend_count=friend_count, is_other_user_friend=is_other_user_friend)
     # if a user is trying to send a friend request to another user  (clicks on the friend request button)...
     elif flask.request.method == "POST":
-        print("sent friend request...")
-        # in async comm. the server has to send the message to the queue instead
-        # and the microservice retrieves this message and does something with it
-        
-        # get requester
-        getRequesterResult = requests.post('http://127.0.0.1:5504/getCurrentUserForFriendRequest', json={"jwt": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
-        userResult = getRequesterResult.json()
-        print(userResult)
-        requester = userResult["current_user"]
-
-        # SEND A FRIEND REQUEST VIA RABBITMQ (SENDING A MESSAGE TO THE QUEUE VIA DIRECT EXCHANGE)
-
-        # REQUESTED USER IS user in this case (just grabbing the user from url)
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
-        channel = connection.channel()
-        # declare a exchange 
-        channel.exchange_declare(exchange="direct_log", exchange_type="direct")
-        # BINDING the queue with routing_key (user that got requested), so that if the user 
-        # that got requested gets a friend request/message... the server can take care of doing everything else
-        channel.queue_bind(exchange='direct_log', queue=user, routing_key=f'{user}')
-        message = f"Hello, {user}. {requester} wants to be your friend."
-        channel.basic_publish(exchange='direct_log', routing_key= f'{user}', body=message)
-        connection.close()
-        return redirect(f"http://127.0.0.1:5000/user/{user}")
+        return "lala"
         
    
 @app.route('/changeUserData', methods=["POST"])
 @check_for_token
 def changeUserData():
-   # get data from client 
-   data = request.get_json()
+   data = request.form.get("changed_description")
    # send data + JWT to microservice so it can change user metadata
    requests.post('http://127.0.0.1:5504/changeUserProfileAttribute', json={"data": data, "jwtToken": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
    username = request.cookies.get("username")
@@ -184,10 +163,75 @@ def changeUserData():
 def friends():
         result = requests.post('http://127.0.0.1:5501/friends', json={"jwt_token": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
         getUserJson = result.json()
-        return render_template('friends.html', friend_count=getUserJson["friend_count"], user=getUserJson["username"])
-   
+
+        return render_template('friends.html', friend_count=getUserJson["friend_count"], user=getUserJson["username"], currentFriendRequest= getUserJson["currentFriendRequest"], listOfCurrentUsersFriends=getUserJson["listOfCurrentUsersFriends"])
+
+@app.route('/sendFriendRequest', methods=["POST"])
+@check_for_token
+def sendFriendRequest():
+    # in async comm. the server has to send the message to the queue instead
+        # and the microservice retrieves this message and does something with it
+        
+        requester = request.form.get('currentUser')
+        requested = request.form.get('user')
 
 
+        # SEND A FRIEND REQUEST VIA RABBITMQ (SENDING A MESSAGE TO THE QUEUE VIA DIRECT EXCHANGE)
+
+        # REQUESTED USER IS user in this case (just grabbing the user from url)
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))    
+        channel = connection.channel()
+        # declare a exchange 
+        channel.exchange_declare(exchange="direct_log", exchange_type="direct")
+        # BINDING the queue with routing_key (requested that got requested), so that if the user 
+        # that got requested gets a friend request/message... the server can take care of doing everything else
+        channel.queue_bind(exchange='direct_log', queue=requested, routing_key=f'{requested}')
+        message = f"Hello {requested} {requester} wants to be your friend. Do you want to be friends?"
+        channel.basic_publish(exchange='direct_log', routing_key= f'{requested}', body=message)
+        connection.close()
+        return redirect(f"http://127.0.0.1:5000/user/{requested}")
+
+@app.route('/acceptFriendRequest', methods=["POST"])
+@check_for_token
+def acceptFriendRequest():
+    # YOU HAVE AN ERROR GOING ON, WHENEVER YOU TRY TO ADD THE FRIEND AFTER REQUEST
+    # ERROR APPEARS
+
+    # YOU ARE CURRENTLY TRYING TO DELETE THE DOCUMENTS IN SQL TO RESET FRIEND REQUESTS TO
+    # TRY THIS AGAIN.
+    
+    friendRequestMessage = request.form.get('currentFriendRequest')
+
+    requests.post('http://127.0.0.1:5501/acceptFriendRequest', json={"friend_request_message": friendRequestMessage}, headers={'Content-Type': 'application/json'})
+    return redirect('http://127.0.0.1:5000/friends')
+
+@app.route('/declineFriendRequest', methods=["POST"])
+@check_for_token
+def declineFriendRequest():
+    return redirect('http://127.0.0.1:5000/friends')
+
+
+@app.route('/chat', methods=["GET"])
+def chat():
+    # getting friend that user wants to chat with
+    FriendToChat = request.args.get("name")
+    print(FriendToChat)
+    res = requests.post('http://127.0.0.1:5500/chat', json={"friendToChat": FriendToChat, "currentUserJWT": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
+    
+    res_json = res.json()
+    print(res_json)
+    # response from microservice. ERROR HANDLING; if the user messaging IS NOT a friend.
+    if res_json["message_code" ] == 0:
+        response = make_response(render_template("chat.html"))
+    elif res_json["message_code"] == 1:
+        response = make_response(render_template("404.html"), message="Sorry. The user you requested is no longer your friend.")
+    return response
+
+
+@app.route('/generateLink', methods=["POST"])
+def generateRoute():
+    name = request.form.get('friendToChat')
+    return redirect(url_for("chat", name=name))
 
 if __name__ == '__main__': 
    app.run(debug=False)

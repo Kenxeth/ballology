@@ -1,78 +1,110 @@
-from flask import Flask, render_template, request, make_response, redirect, url_for, flash
-from flask_bcrypt import Bcrypt
+from flask import Flask, jsonify ,request
 # db dependencies
-from pymongo import MongoClient
 import psycopg2
-# jwt token dependencies
+from flask_socketio import SocketIO
+from flask_cors import CORS
 import jwt
-from functools import wraps
-
-from flask_socketio import SocketIO, emit
-import traceback
-
 # env file dependencies
+from psycopg2 import sql
+
 from dotenv import load_dotenv
 from os import environ
 load_dotenv()
 
 app = Flask(__name__, template_folder="../templates", static_folder="../static")
-socketio = SocketIO(app)
-bcrypt = Bcrypt(app)
+socketio = SocketIO(app, cors_allowed_origins="http://127.0.0.1:5000")
+
+CORS(app)
 
 pepper = environ.get('SECRET_PEPPER')
 private_key = environ.get('SECRET_KEY')
 app.secret_key = environ.get('APP_SECRET_KEY')
 conn = psycopg2.connect(environ.get('POSTGRES_URL'))
 
-def check_for_token(func):
-    @wraps(func)
-    def inner_func(*args, **kwargs):
-        try:
-            JWT = request.cookies.get('JWT')
-            if 'JWT' in request.cookies:
-                decodedJWT = jwt.decode(JWT, private_key, algorithms=["HS256"])
-                if decodedJWT == None:
-                    raise jwt.exceptions.InvalidTokenError
-            else:
-                raise jwt.exceptions.DecodeError
-        except jwt.exceptions.DecodeError:
-            print("Sorry, not validated.")
-            return redirect('http://127.0.0.1:5502/login')
-        except jwt.exceptions.InvalidTokenError:
-            print("Sorry token invalid.")
-            return redirect('http://127.0.0.1:5502/login')
-        except Exception as e:
-            print('err', e)
-            print(traceback.format_exc())
-            return redirect('http://127.0.0.1:5502/login')
-        return func(*args, **kwargs)
-    return inner_func
+def getCurrentUser(jwtToken):
+    """ returns the current user's username from the payload of the JWT token thats passed from the userMetadata route"""
+    payload = jwt.decode(jwtToken, private_key, algorithms="HS256")
+    # make something that says no jwt found if payload is empty
+    username = payload["user"]
+    return username
 
 
-@app.route('/chat')
-@check_for_token
+@app.route('/chat', methods= ["POST"])
 def chat():
-    return render_template('chat.html')
+    result = request.get_json()
+    # we need two users to make DM's
+    user_1 = result["friendToChat"]
+    userJWT = result["currentUserJWT"]
+    # figure out who the user is
+    user_2 = getCurrentUser(userJWT)
 
-@app.route('/getChatMessages')
-@check_for_token
-def getChatMessages():
+    # now we have to make a SQL query that will get us the messageID between both of these users
+    cursor = conn.cursor()
+    # checks if current user and searched user are friends. according to DB, user can either be friend1 (column is named username here) OR friend2 (column is named friend here).
+    findMessageID = sql.SQL("""
+        SELECT messageID
+        FROM friendships
+        WHERE (username = %(user_1)s AND friend = %(user_2)s) OR (username = %(user_2)s AND friend = %(user_1)s) 
+    """)
+    # we dont know exactly whether user_1 is the username or the friend on the SQL table
+    cursor.execute(findMessageID, {"user_1": user_1, "user_2": user_2})
+    messageIDTuple = cursor.fetchone()
+
+    # if the friendship between BOTH users exists (if messageID exists)
+    if messageIDTuple is not None:
+        messageID,= messageIDTuple
+        # getting all previous chat messages. returned as a list
+        previousChatMessages = getChatMessages(messageID)
+        print("previous messages: ", previousChatMessages)
+
+        # IN ORDER FOR DMS TO EXIST THERE MUST BE A ROOM BETWEEN TWO USERS.
+        # TO MAKE A ROOM WE MUST SEND A UNIQUE ROOM ID, WE ARE USING THE MESSAGEID TO CREATE THIS
+        # THE CLIENT MUST HAVE THE messageID/ROOM ID TO send messages to the ROOM.
+        print("Room id: ", messageID)
+        # sending the message_id to the client via socketio
+        return jsonify({"message_code": 0, "room_id": messageID})
+    else:
+        # if friendship doesnt exist then return an error
+        return jsonify({"message_code": 1})
+
+
+def getChatMessages(messageID):
+    """ GET ALL CHAT MESSAGES ACCORDING TO MESSAGEID """
     cursor = conn.cursor()
     view_all_messages = ("""
-        SELECT * from MESSAGES
+        SELECT * 
+        FROM messages
+        WHERE messageID = %(messageID)s
     """)
-    cursor.execute(view_all_messages)
+    # passing in messageID 
+    cursor.execute(view_all_messages, {"messageID": messageID})
+    
     result = cursor.fetchall()
-    print(result)
-    conn.commit()
-    return result
+    # storing all chat messages into a list
+    chatMessages = []
+    
+    # STILL NEED WORK TO DO I NEED TO ADD A MESSAGE FIRST AND SEE HOW THE CHAT MESSAGE LOOKS LIKE
+
+    for chatMessage in result:
+        print(chatMessage)
+        chatMessages.append(chatMessage)
+
+    
+    return chatMessages
 
 
-
-# chat feature
 @socketio.on('connect')
 def connect():
-    print("client connected")
+    print("SERVER connected")
+    
+    @socketio.on('request_room_id')
+    # once you get request_room_id event, run this function below
+    def send_room_id(data):
+        print("RECEIVED REQUEST FROM CLIENT")
+        print(data)
+        # socketio.emit('message_id', {'room_id': "a"})
+
+
 
 @socketio.on('message')
 def handle_message(message):
@@ -99,4 +131,4 @@ def handle_message(message):
 
 
 if __name__ == '__main__': 
-   app.run(port=5500)
+   socketio.run(app, port=5500)

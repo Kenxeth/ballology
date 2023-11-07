@@ -22,8 +22,10 @@
 
     <div id="userProfileDescriptionContainer">
         <p id="userProfileDescription">{{ desc }}</p> <!-- Desc goes here-->  
-        <input type="hidden" id="changeUserProfileDesc">  
-        <button id="submitUserProfileDescChanges">Change</button>
+        <form action="http://127.0.0.1:5000/changeUserData" method="post">
+            <input type="hidden" name="changed_description" id="changeUserProfileDesc">  
+            <button id="submitUserProfileDescChanges">Change</button>
+        </form>
     </div>
     
     <div id="userProfileFriendCountContainer">
@@ -33,12 +35,15 @@
     </div>
 
     {% if currentUser == user %}
-    <div id="userProfileButtonContainer">
+        <div id="userProfileButtonContainer">
             <button id="changeUserProfileButton"> Change settings </button>
-    </div>
-    {% else %}
+        </div>
+    {% elif is_other_user_friend == False %}
     <div id="makeFriendRequestContainer">
-        <form action="" method="post">
+        <form action="http://127.0.0.1:5000/sendFriendRequest" method="post">
+            <!-- input types are needed so that data can pass to main.py -->
+            <input type="hidden" name="user" value="{{user}}">
+            <input type="hidden" name="currentUser" value="{{currentUser}}">
             <button id="addFriendRequestButton"> Add Friend </button>
         </form>
     </div>
