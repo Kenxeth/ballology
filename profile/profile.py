@@ -101,10 +101,12 @@ class User:
 
 @app.route('/getCurrentUserForFriendRequest', methods=["POST"])
 def getCurrentUserForFriendRequest():
-    requestedInfo = request.get_json()
-    get_jwtToken = requestedInfo["jwt"]
-    userJWT = getCurrentUser(get_jwtToken)
-    return jsonify({"current_user": userJWT})
+    requested_info = request.get_json()
+    jwt_token = requested_info["jwt"]
+
+    current_client = User(jwt_token)
+    
+    return jsonify({"current_user": current_client.username})
 
 # put user metadata on to the profile.html
 @app.route('/userMetadata', methods=["POST"])
@@ -126,12 +128,12 @@ def profile():
 def changeUserProfileAttribute():
     """ change user data according to what client says """
    
-    getResult = request.get_json()
-    newUserDescription = getResult["data"]
-    jwt_token = getResult["jwtToken"]
+    get_result = request.get_json()
+    new_user_description = get_result["data"]
+    jwt_token = get_result["jwtToken"]
 
     current_client = User(jwt_token)
-    current_client.change_user_attribute(newUserDescription)
+    current_client.change_user_attribute(new_user_description)
 
     return "Just a filler message, nothing to worry about"
 
@@ -140,14 +142,14 @@ def changeUserProfileAttribute():
 @app.route('/userFriendsData', methods=["POST"])
 def userData():
     # grab JWT token from friends microservice and return a username and friend_count so that the server can show the client how many friends they have
-    getJson = request.get_json()
+    get_json = request.get_json()
 
-    jwt_token = getJson["jwt_token"]
+    jwt_token = get_json["jwt_token"]
 
     current_client = User(jwt_token)
     username = current_client.username
-    userAttributes = current_client.get_user_attributes_from_db()
-    friend_count = userAttributes[2]
+    user_attributes = current_client.get_user_attributes_from_db()
+    friend_count = user_attributes[2]
     return jsonify({"username": username, "friend_count": friend_count})
 
 if __name__ == '__main__': 
