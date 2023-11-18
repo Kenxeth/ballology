@@ -210,28 +210,15 @@ def acceptFriendRequest():
 def declineFriendRequest():
     return redirect('http://127.0.0.1:5000/friends')
 
-
-@app.route('/chat', methods=["GET"])
-def chat():
-    # getting friend that user wants to chat with
-    FriendToChat = request.args.get("name")
-    print(FriendToChat)
-    res = requests.post('http://127.0.0.1:5500/chat', json={"friendToChat": FriendToChat, "currentUserJWT": request.cookies.get("JWT")}, headers={'Content-Type': 'application/json'})
-    
-    res_json = res.json()
-    print(res_json)
-    # response from microservice. ERROR HANDLING; if the user messaging IS NOT a friend.
-    if res_json["message_code" ] == 0:
-        response = make_response(render_template("chat.html"))
-    elif res_json["message_code"] == 1:
-        response = make_response(render_template("404.html"), message="Sorry. The user you requested is no longer your friend.")
-    return response
+@app.route('/getCurrentFriends', methods=["POST"])
+@check_for_token
+def getCurrentFriends():
+    request.get_json()
+    response = requests.post('http://127.0.0.1:5501/getCurrentFriends', json={"jwt_token": request.cookies.get("JWT")}, headers={"Content-Type": "application/json"})
+    result = response.json()
+    return jsonify({"jwt_token": request.cookies.get("JWT"), "list_of_friends": result["list_of_friends"]})
 
 
-@app.route('/generateLink', methods=["POST"])
-def generateRoute():
-    name = request.form.get('friendToChat')
-    return redirect(url_for("chat", name=name))
 
 if __name__ == '__main__': 
    app.run(debug=False)

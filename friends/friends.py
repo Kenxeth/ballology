@@ -4,16 +4,13 @@ from flask_bcrypt import Bcrypt
 import requests
 from pymongo import MongoClient
 import psycopg2
-# jwt token dependencies
-import jwt
 
 import secrets
 import string
-
+import jwt
 from flask_socketio import SocketIO, emit
 
 import pika
-import json
 # env file dependencies
 from dotenv import load_dotenv
 from os import environ
@@ -36,7 +33,8 @@ collection = db["user_credentials"]
 class User:
         def __init__(self, username):      
             self.username = username
-    
+
+
         
         def listen_for_friend_requests(self):
             """
@@ -161,6 +159,23 @@ def acceptFriendRequest():
     
     return jsonify({"who knows": "asdplsa"})
 
+
+@app.route('/getCurrentFriends', methods=["POST"])
+def getCurrentFriends():
+    result = request.get_json()
+    jwtToken = result["jwt_token"]
+
+    payload = jwt.decode(jwtToken, private_key, algorithms="HS256")
+    username = payload["user"]
+
     
+    current_client = User(username)
+    print("current_client: ", current_client.get_current_friends())
+    return jsonify({"list_of_friends": current_client.get_current_friends()})
+
+
+
+
+
 if __name__ == '__main__': 
    app.run(port=5501)
