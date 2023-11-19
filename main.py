@@ -216,8 +216,13 @@ def getCurrentFriends():
     request.get_json()
     response = requests.post('http://127.0.0.1:5501/getCurrentFriends', json={"jwt_token": request.cookies.get("JWT")}, headers={"Content-Type": "application/json"})
     result = response.json()
-    return jsonify({"jwt_token": request.cookies.get("JWT"), "list_of_friends": result["list_of_friends"]})
+    # figure out how to pass through current_clients username so we can use it in chat.js
+    # and say username: this is my message and boom
+    return jsonify({"current_client": result["current_client"], "jwt": request.cookies.get("JWT"), "list_of_friends": result["list_of_friends"]})
 
+@app.route('/test')
+def test():
+    return render_template("test.html")
 
 
 if __name__ == '__main__': 

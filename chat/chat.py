@@ -55,26 +55,26 @@ class User:
         else:
             raise Exception("Friendship does not exist.")
 
-    def get_chat_messages(messageID):
-        """ GET ALL CHAT MESSAGES ACCORDING TO MESSAGEID- RETURNS A LIST """
-        cursor = conn.cursor()
-        view_all_messages = ("""
-            SELECT * 
-            FROM messages
-            WHERE messageID = %(messageID)s
+def get_chat_messages(messageID):
+    """ GET ALL CHAT MESSAGES ACCORDING TO MESSAGEID- RETURNS A LIST """
+    cursor = conn.cursor()
+    view_all_messages = ("""
+        SELECT username, current_message
+        FROM messages
+        WHERE messageID = %(messageID)s
         """)
         # passing in messageID 
-        cursor.execute(view_all_messages, {"messageID": messageID})
+    cursor.execute(view_all_messages, {"messageID": messageID})
+    result = cursor.fetchall()
+    print("RESULT: ", result)
+    # storing all chat messages into a list
+    chatMessages = []
         
-        result = cursor.fetchall()
-        # storing all chat messages into a list
-        chatMessages = []
-        
-        for chatMessage in result:
-            print(chatMessage)
-            chatMessages.append(chatMessage)
+    for username, chatMessage in result:
+        print(username, chatMessage)
+        chatMessages.append([username, chatMessage])
 
-        return chatMessages
+    return chatMessages
 
 
 @socketio.on('connect')
@@ -84,45 +84,35 @@ def connect():
 @socketio.on('request_message')
 def send_messages(data):
     try:
-        print(data)
-        jwt_token = data["jwt_token"]
+        jwt_token = data["data"]["jwt_token"]
         current_client = User(jwt_token)
-        user_clicked = data["userFriend"]
+        user_clicked = data["data"]["userFriend"]
 
-        messageID = current_client.verify_friendship(user_clicked)
-        print("id: ", messageID)
-        list_of_chat_messages = current_client.get_chat_messages(messageID)
-        print("list", list_of_chat_messages)
-        socketio.emit("send_room_messages", list_of_chat_messages)
+        messageID = current_client.verify_friendship(user_clicked) # get messageID
+        list_of_chat_messages = get_chat_messages(messageID) # get all the chat messages with the selected user.
+        socketio.emit("send_room_messages", {"previous_room_messages": list_of_chat_messages, "room_id": messageID})
     except Exception as e:
         print(e)
     
         
+@socketio.on('save_message_to_db')
+def save_message_to_db(data):
+    user = data["user"]
+    message = data["message"]
+    room_id = data['room_id']
 
 
-
-@socketio.on('message')
-def handle_message(message):
     print('Received message:', message)
     cursor = conn.cursor()
-    sql_insert = ("""
-        INSERT INTO messages (username, current_message)
-        VALUES (%s, %s)
+    sql_insert_message_to_db = ("""
+        INSERT INTO messages (username, current_message, messageid)
+        VALUES (%s, %s, %s)
     """)
-
-    # since message sender is always changing, we have to iterate through the message
-    # and make both the message and the messagesender global variables so we can insert 
-    # it inside of our DB
-
-    for key,value in message.items():
-        global username
-        username = key
-        global current_message 
-        current_message = value
     
-    new_message = (username, current_message)
-    cursor.execute(sql_insert, new_message)
+    new_message = (user, message, room_id)
+    cursor.execute(sql_insert_message_to_db, new_message)
     conn.commit()
+    socketio.emit("handle_new_message", {"user": user, "new_message": message})
 
 
 if __name__ == '__main__': 

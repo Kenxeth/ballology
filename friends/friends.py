@@ -170,8 +170,8 @@ def getCurrentFriends():
 
     
     current_client = User(username)
-    print("current_client: ", current_client.get_current_friends())
-    return jsonify({"list_of_friends": current_client.get_current_friends()})
+    print("current_client: ", current_client.username)
+    return jsonify({"list_of_friends": current_client.get_current_friends(), "current_client": current_client.username})
 
 
 

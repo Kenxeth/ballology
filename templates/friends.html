@@ -44,11 +44,17 @@
     {% endif %}
 
 
-    <button id="chatBtn">Open Chat</button>
-
-    <div id="chatContainer" class="hidden">
-        <div id="chatList" class="scrollable"></div>
-    </div>  
+    <div id="friendsContainer" class="scrollable">
+    </div>
+  
+    <div id="chatContainer">
+      <div id="messagesContainer" class="scrollable"></div>
+      <div id="inputContainer">
+        <input type="text" id="messageInput" placeholder="Type a message...">
+        <button id="sendMessage" onsubmit="sendMessage()">Send</button>
+      </div>
+      <button id="closeChat" onclick="closeChat()">X</button>
+    </div>
 
 </body>
 </html>
